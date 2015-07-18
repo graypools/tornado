@@ -134,11 +134,11 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
     def fetch_impl(self, request, callback):
         key = object()
         self.queue.append((key, request, callback))
-        if not len(self.active) < self.max_clients:
+        timeout = min(request.connect_timeout, request.request_timeout)
+        if not len(self.active) < self.max_clients and timeout:
             timeout_handle = self.io_loop.add_timeout(
-                self.io_loop.time() + min(request.connect_timeout,
-                                          request.request_timeout),
-                functools.partial(self._on_timeout, key))
+	        self.io_loop.time() + timeout,
+	        functools.partial(self._on_timeout, key))
         else:
             timeout_handle = None
         self.waiting[key] = (request, callback, timeout_handle)
@@ -200,6 +200,8 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
             self.idle[conn.base].remove(conn)
         except KeyError:
             return
+        except ValueError:
+            pass
         if not self.idle[conn.base]:
             del self.idle[conn.base]
 
@@ -484,6 +486,7 @@ class _HTTPConnection(httputil.HTTPMessageDelegate):
             lambda f: f.result())
 
     def _release(self):
+        self._remove_timeout()
         if self.release_callback is not None:
             release_callback = self.release_callback
             self.release_callback = None
