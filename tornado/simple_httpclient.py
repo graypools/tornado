@@ -47,7 +47,7 @@ def _default_ca_certs():
 
 
 _ConnectionBase = collections.namedtuple('_ConnectionBase', ('scheme', 'host',
-                                                             'port', 'parsed'))
+                                                             'port',))
 
 
 class SimpleAsyncHTTPClient(AsyncHTTPClient):
@@ -163,7 +163,7 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
 
     def _handle_request(self, request, release_callback, final_callback):
         cls = self._connection_class()
-        base = cls.parse_connection_base(request)
+        base, parsed = cls.parse_connection_base(request)
         if self.reuse_connections:
             try:
                 conn = self.idle[base].popleft()
@@ -176,7 +176,7 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
                 return
         cls(self.io_loop, self, request, release_callback, final_callback,
             self.max_buffer_size, self.tcp_client, self.max_header_size,
-            self.max_body_size, self.reuse_connections, base)
+            self.max_body_size, self.reuse_connections, base, parsed)
 
     def _release_fetch(self, key, conn):
         del self.active[key]
@@ -230,7 +230,8 @@ class _HTTPConnection(httputil.HTTPMessageDelegate):
 
     def __init__(self, io_loop, client, request, release_callback,
                  final_callback, max_buffer_size, tcp_client,
-                 max_header_size, max_body_size, keepalive=False, base=None):
+                 max_header_size, max_body_size, keepalive=False, base=None,
+		         parsed=None):
         self.start_time = io_loop.time()
         self.io_loop = io_loop
         self.client = client
@@ -243,6 +244,7 @@ class _HTTPConnection(httputil.HTTPMessageDelegate):
         self.max_body_size = max_body_size
         self.keepalive = keepalive
         self.base = base
+        self.parsed = parsed
         self.code = None
         self.headers = None
         self.chunks = []
@@ -252,10 +254,10 @@ class _HTTPConnection(httputil.HTTPMessageDelegate):
         self._sockaddr = None
         with stack_context.ExceptionStackContext(self._handle_exception):
             if not self.base:
-                self.base = self.parse_connection_base(self.request)
+                self.base, self.parsed = self.parse_connection_base(
+                    self.request)
 
             # Store .parsed values for backward compatibility
-            self.parsed = self.base.parsed
             self.parsed_hostname = self.base.host
 
             if self.request.allow_ipv6 is False:
@@ -295,7 +297,7 @@ class _HTTPConnection(httputil.HTTPMessageDelegate):
         if re.match(r'^\[.*\]$', host):
             # raw ipv6 addresses in urls are enclosed in brackets
             host = host[1:-1]
-        return _ConnectionBase(parsed.scheme, host, port, parsed)
+        return _ConnectionBase(parsed.scheme, host, port), parsed
 
     @classmethod
     def _get_ssl_options(cls, scheme, request):
